@@ -15,7 +15,7 @@ def create_kernel() -> Kernel:
     kernel.add_service(
         OpenAIChatCompletion(
             service_id="groq",
-            ai_model_id=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+            ai_model_id=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
             async_client=AsyncOpenAI(
                 api_key=api_key,
                 base_url=os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1"),

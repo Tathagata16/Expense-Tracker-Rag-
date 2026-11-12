@@ -203,8 +203,20 @@ function ChatSection({ onImported }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [sending, setSending] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
+
+  useEffect(() => {
+    apiRequest(`/chat/history?session_id=${encodeURIComponent(sessionId)}`)
+      .then((result) => {
+        if (result.messages.length > 0) {
+          setMessages(result.messages.map((message) => ({ role: message.role, text: message.content })));
+        }
+      })
+      .catch((error) => setUploadError(`Could not load chat history: ${error.message}`))
+      .finally(() => setHistoryLoading(false));
+  }, [sessionId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -329,10 +341,10 @@ function ChatSection({ onImported }) {
         </div>
         <button
           onClick={send}
-          disabled={sending}
+          disabled={historyLoading || sending}
           className="bg-[#2C2A26] text-[#FAF8F5] rounded-xl px-4 py-3 text-sm font-medium hover:bg-[#3D3A35] transition-colors h-[62px] flex items-center gap-1.5"
         >
-          <span>{sending ? "Thinking…" : "Send"}</span>
+          <span>{historyLoading ? "Loading…" : sending ? "Thinking…" : "Send"}</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
           </svg>

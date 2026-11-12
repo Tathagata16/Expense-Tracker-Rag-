@@ -1,9 +1,10 @@
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from agents.guardrail.agent import REFUSAL
+from memory.memory_service import load_messages
 from services.ai_service import answer_query
 
 
@@ -33,3 +34,8 @@ async def chat(request: ChatRequest):
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     return {"reply": reply}
+
+
+@router.get("/history")
+def chat_history(session_id: str = Query(min_length=8, max_length=100)):
+    return {"messages": load_messages(session_id)}

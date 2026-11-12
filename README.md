@@ -22,7 +22,7 @@ For chat, configure the LLM provider before starting the backend:
 
 ```powershell
 $env:GROQ_API_KEY = "gsk_your-key"
-$env:GROQ_MODEL = "llama-3.1-8b-instant"
+$env:GROQ_MODEL = "openai/gpt-oss-120b"
 $env:EMBEDDING_API_KEY = "your-embedding-provider-key"
 $env:EMBEDDING_MODEL = "text-embedding-3-small"
 ```
