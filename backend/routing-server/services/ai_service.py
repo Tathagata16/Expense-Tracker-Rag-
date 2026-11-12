@@ -4,6 +4,8 @@ from typing import Any
 
 import httpx
 
+from orchestration.coach_manager import CoachManager
+from orchestration.kernel import create_kernel
 from rag.retriever import retrieve_relevant_chunks
 from storage import get_connection
 
@@ -106,7 +108,19 @@ async def answer_query(messages: list[dict[str, str]], month: str | None) -> str
     except RuntimeError as error:
         raise RuntimeError(f"RAG retrieval failed: {error}") from error
     manual_context = retrieve_context(user_message, month)
-    context = "\n\n".join([manual_context, *document_chunks])
+    try:
+        routing = await CoachManager(create_kernel()).route_and_run(user_message, month)
+    except RuntimeError as error:
+        raise RuntimeError(f"Semantic Kernel orchestration failed: {error}") from error
+    plugin_context = routing["plugin_context"]
+    context = "\n\n".join(
+        [
+            f"Query agent route: {routing['route']}",
+            f"Plugin calculation: {plugin_context}" if plugin_context else "",
+            manual_context,
+            *document_chunks,
+        ]
+    )
     system_prompt = f"""
 You are Spendwise, an expense analysis assistant.
 Answer only from the provided expense context. If the context does not contain enough

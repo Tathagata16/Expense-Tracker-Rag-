@@ -55,9 +55,15 @@ Open `http://localhost:5173`. The frontend loads expenses from the backend and u
 
 Expense payloads use `title`, `amount`, `category`, `date` (`YYYY-MM-DD`), and optional `note`.
 
-## Planned increments
+## Semantic Kernel orchestration
 
-1. Add chat routing, guardrails, memory, and Semantic Kernel plugins.
+The chat path creates a Semantic Kernel with the Groq-compatible chat service and registers:
+
+- `budget.monthly_budget`
+- `savings.savings_rate`
+- `savings.goal_progress`
+
+The query agent routes spending and category questions to the budget plugin, savings and goal questions to the savings plugin, and lets general questions use the grounded RAG context directly.
 
 ## XLSX import format
 
