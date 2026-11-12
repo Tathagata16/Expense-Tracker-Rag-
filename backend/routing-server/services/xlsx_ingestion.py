@@ -5,16 +5,13 @@ from typing import Any
 from fastapi import HTTPException, UploadFile
 from openpyxl import load_workbook
 
-from category_catalog import CATEGORIES
+from agents.categoriser.agent import CategoriserAgent
 from rag.ingestion import build_chunks, embed_chunks
 from storage import get_connection
 
 
 EXPECTED_COLUMNS = {"title", "amount", "category", "date", "note"}
-CATEGORY_ALIASES = {
-    " ".join(category["label"].lower().split()): category["id"]
-    for category in CATEGORIES
-}
+CATEGORISER = CategoriserAgent()
 
 
 def _normalise_text(value: Any) -> str:
@@ -78,7 +75,7 @@ def _parse_rows(workbook: Any) -> list[tuple[str, float, str, str, str]]:
         if amount <= 0:
             raise ValueError(f"Row {row_number}: amount must be a positive number")
 
-        category = CATEGORY_ALIASES.get(_normalise_text(values[indexes["category"]]))
+        category = CATEGORISER.categorise(values[indexes["category"]])
         if category is None:
             raise ValueError(f"Row {row_number}: category is not supported")
         parsed_date = _parse_date(values[indexes["date"]], row_number)

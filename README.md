@@ -65,6 +65,8 @@ The chat path creates a Semantic Kernel with the Groq-compatible chat service an
 
 The query agent routes spending and category questions to the budget plugin, savings and goal questions to the savings plugin, and lets general questions use the grounded RAG context directly.
 
+The specialist agents live under `backend/routing-server/agents/`: query, budget, savings, categoriser, editing, and guardrail. Editing requests are identified by the editing agent and should be completed through the existing expense CRUD endpoints rather than silently mutated by chat.
+
 ## XLSX import format
 
 The chat screen accepts `.xlsx` files only. The workbook must contain exactly one worksheet with exactly these columns:

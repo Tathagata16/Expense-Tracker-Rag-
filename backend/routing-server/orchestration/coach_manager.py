@@ -1,6 +1,9 @@
 import json
 from typing import Annotated
 
+from agents.budget.agent import BudgetAgent
+from agents.query.agent import QueryAgent
+from agents.savings.agent import SavingsAgent
 from semantic_kernel.functions import KernelArguments, kernel_function
 
 from tools.budget_calculator import calculate_monthly_budget
@@ -32,41 +35,28 @@ class SavingsPlugin:
         return json.dumps(calculate_goal_progress())
 
 
-class QueryAgent:
-    """Small deterministic query router used before the LLM is called."""
-
-    def route(self, query: str) -> str:
-        lowered = query.lower()
-        if any(term in lowered for term in ("saving", "saved", "goal", "save")):
-            return "savings"
-        if any(
-            term in lowered
-            for term in ("spend", "spent", "budget", "category", "expense", "total", "cost")
-        ):
-            return "budget"
-        return "general"
-
-
 class CoachManager:
     def __init__(self, kernel):
         self.kernel = kernel
         self.query_agent = QueryAgent()
+        self.budget_agent = BudgetAgent()
+        self.savings_agent = SavingsAgent()
 
     async def route_and_run(self, query: str, month: str | None) -> dict[str, str]:
         route = self.query_agent.route(query)
         if route == "general":
             return {"route": route, "plugin_context": ""}
         arguments = KernelArguments(month=month)
-        if route == "savings" and any(term in query.lower() for term in ("goal", "target", "progress")):
+        if self.savings_agent.can_handle(route) and self.savings_agent.requests_goal_progress(query):
             function = self.kernel.get_function("savings", "goal_progress")
             arguments = KernelArguments()
-        elif route == "budget":
+        elif self.budget_agent.can_handle(route):
             if month is None:
                 return {"route": route, "plugin_context": ""}
-            function = self.kernel.get_function("budget", "monthly_budget")
+            function = self.kernel.get_function(self.budget_agent.plugin_name, self.budget_agent.function_name)
         else:
             if month is None:
                 return {"route": route, "plugin_context": ""}
-            function = self.kernel.get_function("savings", "savings_rate")
+            function = self.kernel.get_function(self.savings_agent.plugin_name, self.savings_agent.rate_function_name)
         result = await self.kernel.invoke(function, arguments=arguments)
         return {"route": route, "plugin_context": str(result.value)}

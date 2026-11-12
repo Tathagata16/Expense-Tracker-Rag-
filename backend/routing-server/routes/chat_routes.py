@@ -3,7 +3,8 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from services.ai_service import REFUSAL, answer_query
+from agents.guardrail.agent import REFUSAL
+from services.ai_service import answer_query
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])

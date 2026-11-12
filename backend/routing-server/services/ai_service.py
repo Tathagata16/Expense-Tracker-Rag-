@@ -4,33 +4,14 @@ from typing import Any
 
 import httpx
 
+from agents.guardrail.agent import GuardrailAgent
 from orchestration.coach_manager import CoachManager
 from orchestration.kernel import create_kernel
 from rag.retriever import retrieve_relevant_chunks
 from storage import get_connection
 
 
-REFUSAL = (
-    "I can help explain your recorded expenses and savings data, but I cannot provide "
-    "direct investment advice or tell you what to do with your money."
-)
-BLOCKED_QUERY_TERMS = (
-    "invest in",
-    "which stock",
-    "which crypto",
-    "buy shares",
-    "sell shares",
-    "investment advice",
-    "what should i do with my money",
-    "where should i put my money",
-)
-UNSAFE_RESPONSE_PATTERNS = (
-    r"\byou should invest\b",
-    r"\bbuy shares of\b",
-    r"\bsell shares of\b",
-    r"\bput your money in\b",
-    r"\binvest your money in\b",
-)
+GUARDRAIL_AGENT = GuardrailAgent()
 
 
 def _tokens(text: str) -> list[str]:
@@ -79,24 +60,12 @@ def retrieve_context(query: str, month: str | None) -> str:
     return expense_context or "No matching manually entered expense records were found."
 
 
-def _guard_query(query: str) -> None:
-    lowered = query.lower()
-    if any(term in lowered for term in BLOCKED_QUERY_TERMS):
-        raise ValueError(REFUSAL)
-
-
-def _guard_response(response: str) -> str:
-    if any(re.search(pattern, response, flags=re.IGNORECASE) for pattern in UNSAFE_RESPONSE_PATTERNS):
-        return REFUSAL
-    return response
-
-
 async def answer_query(messages: list[dict[str, str]], month: str | None) -> str:
     user_message = next(
         (message["content"] for message in reversed(messages) if message["role"] == "user"),
         "",
     )
-    _guard_query(user_message)
+    GUARDRAIL_AGENT.validate_query(user_message)
 
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -154,4 +123,4 @@ Expense context:
         raise RuntimeError("LLM provider returned an invalid response") from error
     if not isinstance(answer, str) or not answer.strip():
         raise RuntimeError("LLM provider returned an empty response")
-    return _guard_response(answer)
+    return GUARDRAIL_AGENT.validate_response(answer)
