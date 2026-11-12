@@ -1,0 +1,5 @@
+backend/routing-server/.venv/
+backend/routing-server/data/
+**/__pycache__/
+frontend/node_modules/
+frontend/dist/

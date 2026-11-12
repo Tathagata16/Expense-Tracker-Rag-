@@ -4,8 +4,6 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
 
-// ─── Dummy Data ───────────────────────────────────────────────────────────────
-
 const CATEGORIES = [
   { id: "food", label: "Food & Dining", color: "#C8A97E", icon: "🍽️" },
   { id: "transport", label: "Transport", color: "#8FA8C8", icon: "🚗" },
@@ -15,24 +13,6 @@ const CATEGORIES = [
   { id: "shopping", label: "Shopping", color: "#C0A898", icon: "🛍️" },
   { id: "rent", label: "Rent & Housing", color: "#A0B4C8", icon: "🏠" },
   { id: "savings", label: "Savings", color: "#A8C4A8", icon: "💰" },
-];
-
-const DUMMY_EXPENSES = [
-  { id: 1, title: "Grocery Store", amount: 2340, category: "food", date: "2025-11-01", note: "Weekly groceries" },
-  { id: 2, title: "Metro Card Recharge", amount: 500, category: "transport", date: "2025-11-02", note: "" },
-  { id: 3, title: "Netflix", amount: 649, category: "entertainment", date: "2025-11-03", note: "Monthly subscription" },
-  { id: 4, title: "Electricity Bill", amount: 1800, category: "utilities", date: "2025-11-04", note: "" },
-  { id: 5, title: "Zomato", amount: 480, category: "food", date: "2025-11-05", note: "Dinner order" },
-  { id: 6, title: "Gym Membership", amount: 1200, category: "health", date: "2025-11-06", note: "" },
-  { id: 7, title: "Amazon Order", amount: 3200, category: "shopping", date: "2025-11-07", note: "Clothes & accessories" },
-  { id: 8, title: "Rent", amount: 18000, category: "rent", date: "2025-11-01", note: "November rent" },
-  { id: 9, title: "Petrol", amount: 1100, category: "transport", date: "2025-11-08", note: "" },
-  { id: 10, title: "Pharmacy", amount: 320, category: "health", date: "2025-11-09", note: "Vitamins" },
-  { id: 11, title: "Coffee Shop", amount: 560, category: "food", date: "2025-11-10", note: "Meetings" },
-  { id: 12, title: "Savings Transfer", amount: 5000, category: "savings", date: "2025-11-10", note: "Monthly savings" },
-  { id: 13, title: "Internet Bill", amount: 999, category: "utilities", date: "2025-11-11", note: "" },
-  { id: 14, title: "Movie Tickets", amount: 700, category: "entertainment", date: "2025-11-09", note: "Weekend outing" },
-  { id: 15, title: "Swiggy", amount: 390, category: "food", date: "2025-11-11", note: "Lunch" },
 ];
 
 const PAST_MONTHS = [
@@ -65,6 +45,20 @@ const CHAT_SUGGESTIONS = [
   "What's my biggest expense category?",
   "Am I on track with my savings goal?",
 ];
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+
+async function apiRequest(path, options = {}) {
+  const response = await fetch(`${API_URL}${path}`, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail || `Request failed (${response.status})`);
+  }
+  return response.status === 204 ? null : response.json();
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -460,6 +454,7 @@ function SavingsGoalCard() {
 
 function DashboardView({ expenses, onAdd, onEdit, onDelete }) {
   const total = expenses.reduce((s, e) => s + +e.amount, 0);
+  const largestExpense = expenses.length ? Math.max(...expenses.map((e) => +e.amount)) : 0;
 
   const catTotals = CATEGORIES.map((c) => ({
     ...c,
@@ -474,7 +469,7 @@ function DashboardView({ expenses, onAdd, onEdit, onDelete }) {
       <div className="grid grid-cols-3 gap-4">
         {[
           { label: "Total This Month", value: fmt(total), sub: "Nov 2025" },
-          { label: "Largest Expense", value: fmt(Math.max(...expenses.map((e) => +e.amount))), sub: "Single transaction" },
+          { label: "Largest Expense", value: fmt(largestExpense), sub: "Single transaction" },
           { label: "Transactions", value: expenses.length, sub: "This month" },
         ].map((s) => (
           <div key={s.label} className="bg-white border border-[#E8E3D9] rounded-2xl p-4">
@@ -490,6 +485,7 @@ function DashboardView({ expenses, onAdd, onEdit, onDelete }) {
         <div className="bg-white border border-[#E8E3D9] rounded-2xl p-5">
           <p className="text-xs text-[#7C6F5B] mb-3">Categories this month</p>
           <div className="space-y-3">
+            {catTotals.length === 0 && <p className="text-sm text-[#7C6F5B]">No expenses recorded this month.</p>}
             {catTotals.map((c) => (
               <div key={c.id}>
                 <div className="flex justify-between text-sm mb-1">
@@ -719,22 +715,55 @@ function AskAIView() {
 
 export default function App() {
   const [view, setView] = useState("dashboard");
-  const [expenses, setExpenses] = useState(DUMMY_EXPENSES);
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
 
-  const handleAdd = (form) => {
-    setExpenses((prev) => [...prev, { ...form, id: Date.now(), amount: +form.amount }]);
-    setShowAdd(false);
+  useEffect(() => {
+    apiRequest("/expenses")
+      .then(setExpenses)
+      .catch((requestError) => setError(requestError.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleAdd = async (form) => {
+    try {
+      const created = await apiRequest("/expenses", {
+        method: "POST",
+        body: JSON.stringify({ ...form, amount: Number(form.amount) }),
+      });
+      setExpenses((prev) => [...prev, created]);
+      setShowAdd(false);
+      setError("");
+    } catch (requestError) {
+      setError(requestError.message);
+    }
   };
 
-  const handleEdit = (form) => {
-    setExpenses((prev) => prev.map((e) => (e.id === editTarget.id ? { ...e, ...form, amount: +form.amount } : e)));
-    setEditTarget(null);
+  const handleEdit = async (form) => {
+    try {
+      const updated = await apiRequest(`/expenses/${editTarget.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...form, amount: Number(form.amount) }),
+      });
+      setExpenses((prev) => prev.map((expense) => (expense.id === updated.id ? updated : expense)));
+      setEditTarget(null);
+      setError("");
+    } catch (requestError) {
+      setError(requestError.message);
+    }
   };
 
-  const handleDelete = (id) => {
-    setExpenses((prev) => prev.filter((e) => e.id !== id));
+  const handleDelete = async (id) => {
+    try {
+      await apiRequest(`/expenses/${id}`, { method: "DELETE" });
+      setExpenses((prev) => prev.filter((expense) => expense.id !== id));
+      setError("");
+    } catch (requestError) {
+      setError(requestError.message);
+    }
   };
 
   const NAV = [
@@ -775,6 +804,8 @@ export default function App() {
       {/* Main */}
       <main className="ml-56 flex-1 p-6 overflow-y-auto min-h-screen">
         <div className="max-w-4xl mx-auto">
+          {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+          {loading && <p className="mb-4 text-sm text-[#7C6F5B]">Loading expenses...</p>}
           {view === "dashboard" && (
             <DashboardView
               expenses={expenses}
