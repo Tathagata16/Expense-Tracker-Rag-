@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 
 from agents.guardrail.agent import GuardrailAgent
+from memory.memory_service import append_message, load_messages
 from orchestration.coach_manager import CoachManager
 from orchestration.kernel import create_kernel
 from rag.retriever import retrieve_relevant_chunks
@@ -60,12 +61,15 @@ def retrieve_context(query: str, month: str | None) -> str:
     return expense_context or "No matching manually entered expense records were found."
 
 
-async def answer_query(messages: list[dict[str, str]], month: str | None) -> str:
+async def answer_query(
+    messages: list[dict[str, str]], month: str | None, session_id: str
+) -> str:
     user_message = next(
         (message["content"] for message in reversed(messages) if message["role"] == "user"),
         "",
     )
     GUARDRAIL_AGENT.validate_query(user_message)
+    conversation = load_messages(session_id)
 
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -102,7 +106,11 @@ Expense context:
 """.strip()
     payload = {
         "model": model,
-        "messages": [{"role": "system", "content": system_prompt}, *messages],
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            *conversation,
+            {"role": "user", "content": user_message},
+        ],
         "temperature": 0,
     }
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -123,4 +131,7 @@ Expense context:
         raise RuntimeError("LLM provider returned an invalid response") from error
     if not isinstance(answer, str) or not answer.strip():
         raise RuntimeError("LLM provider returned an empty response")
-    return GUARDRAIL_AGENT.validate_response(answer)
+    guarded_answer = GUARDRAIL_AGENT.validate_response(answer)
+    append_message(session_id, "user", user_message)
+    append_message(session_id, "assistant", guarded_answer)
+    return guarded_answer

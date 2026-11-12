@@ -18,13 +18,14 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=30)
     context: str | None = None
+    session_id: str = Field(min_length=8, max_length=100)
 
 
 @router.post("")
 async def chat(request: ChatRequest):
     messages = [message.model_dump() for message in request.messages]
     try:
-        reply = await answer_query(messages, request.context)
+        reply = await answer_query(messages, request.context, request.session_id)
     except ValueError as error:
         if str(error) == REFUSAL:
             return {"reply": REFUSAL}

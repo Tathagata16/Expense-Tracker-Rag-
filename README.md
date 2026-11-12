@@ -83,6 +83,8 @@ Imported rows are saved as expenses and split into one searchable chunk per row.
 
 `POST /api/chat` embeds the question, ranks stored chunks with cosine similarity, and sends only the top relevant imported chunks plus matching manual expense records to the configured LLM. Requests for direct investment advice are refused, provider/configuration errors are returned explicitly, and there is no mock response fallback.
 
+Chat turns are persisted in SQLite by `session_id`. The frontend stores a session ID in browser local storage and sends it with each request, so recent conversation context survives page refreshes in the same browser.
+
 ## Data tools
 
 The plugin-ready functions in `backend/routing-server/tools/` operate directly on stored expenses:

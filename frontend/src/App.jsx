@@ -186,6 +186,13 @@ function ExpenseForm({ initial, onSave, onCancel }) {
 // ─── Chat Section ─────────────────────────────────────────────────────────────
 
 function ChatSection({ onImported }) {
+  const [sessionId] = useState(() => {
+    const stored = localStorage.getItem("spendwise-chat-session");
+    if (stored) return stored;
+    const generated = crypto.randomUUID();
+    localStorage.setItem("spendwise-chat-session", generated);
+    return generated;
+  });
   const [messages, setMessages] = useState([
     {
       role: "assistant",
@@ -206,7 +213,6 @@ function ChatSection({ onImported }) {
   const send = async () => {
     if (!input.trim()) return;
     const q = input.trim();
-    const history = messages.map((message) => ({ role: message.role, content: message.text }));
     setMessages((m) => [...m, { role: "user", text: q }]);
     setInput("");
     setSending(true);
@@ -214,8 +220,9 @@ function ChatSection({ onImported }) {
       const result = await apiRequest("/chat", {
         method: "POST",
         body: JSON.stringify({
-          messages: [...history, { role: "user", content: q }],
+          messages: [{ role: "user", content: q }],
           context: new Date().toISOString().slice(0, 7),
+          session_id: sessionId,
         }),
       });
       setMessages((m) => [...m, { role: "assistant", text: result.reply }]);
