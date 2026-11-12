@@ -18,6 +18,17 @@ cd backend\routing-server
 
 The API runs at `http://localhost:8000`. SQLite data is created automatically at `backend\routing-server\data\expenses.db`; no database credentials are required for local development.
 
+For chat, configure the LLM provider before starting the backend:
+
+```powershell
+$env:GROQ_API_KEY = "gsk_your-key"
+$env:GROQ_MODEL = "llama-3.1-8b-instant"
+$env:EMBEDDING_API_KEY = "your-embedding-provider-key"
+$env:EMBEDDING_MODEL = "text-embedding-3-small"
+```
+
+`GROQ_BASE_URL` is optional and defaults to `https://api.groq.com/openai/v1`. Groq is used for chat generation. Groq does not currently provide an embeddings endpoint, so `EMBEDDING_API_KEY` must belong to a separate OpenAI-compatible embeddings provider. Set `EMBEDDING_BASE_URL` if needed.
+
 ## Start the frontend
 
 In a second terminal:
@@ -37,11 +48,38 @@ Open `http://localhost:5173`. The frontend loads expenses from the backend and u
 - `POST /api/expenses`
 - `PUT /api/expenses/{id}`
 - `DELETE /api/expenses/{id}`
+- `GET /api/summary?year=YYYY`
+- `GET /api/goals/active`
+- `PUT /api/goals/active`
+- `POST /api/chat`
 
 Expense payloads use `title`, `amount`, `category`, `date` (`YYYY-MM-DD`), and optional `note`.
 
 ## Planned increments
 
-1. Add monthly summaries and savings-goal persistence.
-2. Add PDF/Excel ingestion and document retrieval.
-3. Add chat routing, guardrails, memory, and Semantic Kernel plugins.
+1. Add chat routing, guardrails, memory, and Semantic Kernel plugins.
+
+## XLSX import format
+
+The chat screen accepts `.xlsx` files only. The workbook must contain exactly one worksheet with exactly these columns:
+
+```text
+title | amount | category | date | note
+```
+
+Use positive numbers for `amount`, `YYYY-MM-DD` for `date`, and one of the supported category names: Food & Dining, Transport, Utilities, Entertainment, Health, Shopping, Rent & Housing, or Savings. Headers and text values are trimmed and compared case-insensitively. Any missing, extra, duplicate, malformed, or unsupported value rejects the entire file before anything is stored.
+
+Imported rows are saved as expenses and split into one searchable chunk per row. Each chunk is embedded with `EMBEDDING_MODEL` and stored in SQLite alongside its vector. PDF import is intentionally not enabled yet.
+
+## Chat behavior
+
+`POST /api/chat` embeds the question, ranks stored chunks with cosine similarity, and sends only the top relevant imported chunks plus matching manual expense records to the configured LLM. Requests for direct investment advice are refused, provider/configuration errors are returned explicitly, and there is no mock response fallback.
+
+## Data tools
+
+The plugin-ready functions in `backend/routing-server/tools/` operate directly on stored expenses:
+
+- `calculate_category_spend` and `calculate_monthly_budget`
+- `calculate_savings_rate` and `calculate_goal_progress`
+
+They are plain Python functions so the future Semantic Kernel orchestration layer can register them without changing their calculations.

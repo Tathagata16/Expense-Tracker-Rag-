@@ -15,30 +15,6 @@ const CATEGORIES = [
   { id: "savings", label: "Savings", color: "#A8C4A8", icon: "💰" },
 ];
 
-const PAST_MONTHS = [
-  { month: "October 2025", total: 34200, saved: 4000, topCategory: "Rent & Housing" },
-  { month: "September 2025", total: 31800, saved: 6500, topCategory: "Shopping" },
-  { month: "August 2025", total: 29500, saved: 8000, topCategory: "Food & Dining" },
-  { month: "July 2025", total: 33100, saved: 3500, topCategory: "Rent & Housing" },
-  { month: "June 2025", total: 28900, saved: 9200, topCategory: "Utilities" },
-];
-
-const MONTHLY_TREND = [
-  { month: "Jun", spent: 28900, saved: 9200 },
-  { month: "Jul", spent: 33100, saved: 3500 },
-  { month: "Aug", spent: 29500, saved: 8000 },
-  { month: "Sep", spent: 31800, saved: 6500 },
-  { month: "Oct", spent: 34200, saved: 4000 },
-  { month: "Nov", spent: 35238, saved: 5000 },
-];
-
-const SAVINGS_GOAL = {
-  title: "Emergency Fund",
-  target: 100000,
-  current: 42000,
-  deadline: "2026-06-01",
-};
-
 const CHAT_SUGGESTIONS = [
   "How much did I spend on food this month?",
   "Compare my October vs November expenses",
@@ -49,8 +25,9 @@ const CHAT_SUGGESTIONS = [
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
 
 async function apiRequest(path, options = {}) {
+  const isFormData = options.body instanceof FormData;
   const response = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: isFormData ? { ...(options.headers || {}) } : { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   });
   if (!response.ok) {
@@ -208,7 +185,7 @@ function ExpenseForm({ initial, onSave, onCancel }) {
 
 // ─── Chat Section ─────────────────────────────────────────────────────────────
 
-function ChatSection() {
+function ChatSection({ onImported }) {
   const [messages, setMessages] = useState([
     {
       role: "assistant",
@@ -217,6 +194,8 @@ function ChatSection() {
   ]);
   const [input, setInput] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [sending, setSending] = useState(false);
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
 
@@ -224,63 +203,73 @@ function ChatSection() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const fakeReply = (q) => {
-    const lower = q.toLowerCase();
-    if (lower.includes("food"))
-      return "You've spent ₹3,770 on Food & Dining this month across 4 transactions — Grocery Store (₹2,340), Zomato (₹480), Coffee Shop (₹560), and Swiggy (₹390). That's 10.7% of your total spend.";
-    if (lower.includes("saving"))
-      return "You're on track! You've saved ₹5,000 this month. Your Emergency Fund goal is ₹1,00,000 — you're at 42% (₹42,000) with a June 2026 deadline. You need to save about ₹8,167/month to reach it.";
-    if (lower.includes("biggest") || lower.includes("top"))
-      return "Your biggest category this month is Rent & Housing at ₹18,000 (51.1%), followed by Shopping at ₹3,200 (9.1%) and Food & Dining at ₹3,770 (10.7%).";
-    if (lower.includes("compar") || lower.includes("october"))
-      return "Comparing October vs November: October total was ₹34,200, November is currently ₹35,238. You're ₹1,038 above last month (+3%). Food is up ₹620, but utilities are down ₹400.";
-    return "Based on your expense data, I can see you've uploaded reports for November 2025. Your total spend so far is ₹35,238 across 8 categories. Would you like a breakdown by category or a comparison with last month?";
-  };
-
-  const send = () => {
+  const send = async () => {
     if (!input.trim()) return;
     const q = input.trim();
+    const history = messages.map((message) => ({ role: message.role, content: message.text }));
     setMessages((m) => [...m, { role: "user", text: q }]);
     setInput("");
-    setTimeout(() => {
-      setMessages((m) => [...m, { role: "assistant", text: fakeReply(q) }]);
-    }, 900);
+    setSending(true);
+    try {
+      const result = await apiRequest("/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          messages: [...history, { role: "user", content: q }],
+          context: new Date().toISOString().slice(0, 7),
+        }),
+      });
+      setMessages((m) => [...m, { role: "assistant", text: result.reply }]);
+    } catch (error) {
+      setMessages((m) => [...m, { role: "assistant", text: `I couldn't answer that: ${error.message}` }]);
+    } finally {
+      setSending(false);
+    }
   };
 
-  const handleUpload = (type) => {
+  const handleUpload = async (file) => {
+    if (!file) return;
     setUploading(true);
-    setTimeout(() => {
+    setUploadError("");
+    const body = new FormData();
+    body.append("file", file);
+    try {
+      const result = await apiRequest("/upload", { method: "POST", body });
+      await onImported();
       setUploading(false);
       setMessages((m) => [
         ...m,
-        { role: "assistant", text: `✅ Your ${type} has been processed. I found 15 transactions totalling ₹35,238. The data has been categorised automatically — you can now ask me anything about it.` },
+        { role: "assistant", text: `✅ ${file.name} was imported. I found ${result.transactionCount} transactions totalling ${fmt(result.total)}. The data is now available for your expense analysis.` },
       ]);
-    }, 1800);
+    } catch (error) {
+      setUploading(false);
+      setUploadError(error.message);
+    }
   };
 
   return (
     <div className="flex flex-col h-full">
       {/* Upload strip */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-2">
         <button
-          onClick={() => { fileRef.current.accept = ".pdf"; fileRef.current.click(); handleUpload("PDF report"); }}
+          onClick={() => { fileRef.current.accept = ".xlsx"; fileRef.current.click(); }}
           className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[#E8E3D9] text-sm text-[#7C6F5B] hover:bg-[#F0EDE6] transition-colors bg-white"
         >
-          <span>📄</span> Import PDF
-        </button>
-        <button
-          onClick={() => { fileRef.current.accept = ".xlsx,.csv"; fileRef.current.click(); handleUpload("Excel sheet"); }}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-[#E8E3D9] text-sm text-[#7C6F5B] hover:bg-[#F0EDE6] transition-colors bg-white"
-        >
-          <span>📊</span> Import Excel
+          <span>📊</span> Import XLSX
         </button>
         {uploading && (
           <span className="text-xs text-[#7C6F5B] self-center ml-2 animate-pulse">
             Processing...
           </span>
         )}
-        <input ref={fileRef} type="file" className="hidden" onChange={() => {}} />
+        <input ref={fileRef} type="file" className="hidden" onChange={(event) => { handleUpload(event.target.files[0]); event.target.value = ""; }} />
       </div>
+      <p className="mb-4 text-xs leading-relaxed text-[#7C6F5B]">
+        Upload one <strong>.xlsx</strong> worksheet with exactly these columns:
+        <strong> title, amount, category, date, note</strong>. Category values must be one of
+        Food &amp; Dining, Transport, Utilities, Entertainment, Health, Shopping, Rent &amp; Housing, or Savings.
+        Headers and values may use different case or surrounding spaces. Invalid files are rejected without importing any rows.
+      </p>
+      {uploadError && <p className="mb-3 text-xs text-red-700">{uploadError}</p>}
 
       {/* Message area */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1 min-h-0">
@@ -333,9 +322,10 @@ function ChatSection() {
         </div>
         <button
           onClick={send}
+          disabled={sending}
           className="bg-[#2C2A26] text-[#FAF8F5] rounded-xl px-4 py-3 text-sm font-medium hover:bg-[#3D3A35] transition-colors h-[62px] flex items-center gap-1.5"
         >
-          <span>Send</span>
+          <span>{sending ? "Thinking…" : "Send"}</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
           </svg>
@@ -347,15 +337,14 @@ function ChatSection() {
 
 // ─── Savings Goal ─────────────────────────────────────────────────────────────
 
-function SavingsGoalCard() {
-  const [goal, setGoal] = useState(SAVINGS_GOAL);
+function SavingsGoalCard({ goal, onSave }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(goal);
-  const pct = Math.min(100, Math.round((goal.current / goal.target) * 100));
+  const [draft, setDraft] = useState(goal || { title: "", target: "", current: "", deadline: todayStr() });
+  const pct = goal ? Math.min(100, Math.round((goal.current / goal.target) * 100)) : 0;
 
   const daysLeft = Math.max(
     0,
-    Math.round((new Date(goal.deadline) - new Date()) / 86400000)
+    Math.round((new Date(goal?.deadline) - new Date()) / 86400000)
   );
 
   return (
@@ -363,19 +352,19 @@ function SavingsGoalCard() {
       <div className="flex items-center justify-between mb-3">
         <div>
           <p className="text-xs text-[#7C6F5B] uppercase tracking-wide">Savings Goal</p>
-          <h3 className="text-base font-semibold text-[#2C2A26] mt-0.5">{goal.title}</h3>
+          <h3 className="text-base font-semibold text-[#2C2A26] mt-0.5">{goal?.title || "No active goal"}</h3>
         </div>
         <button
-          onClick={() => { setDraft(goal); setEditing(true); }}
+          onClick={() => { setDraft(goal || { title: "", target: "", current: "", deadline: todayStr() }); setEditing(true); }}
           className="text-xs text-[#7C6F5B] hover:text-[#2C2A26] border border-[#E8E3D9] px-3 py-1.5 rounded-lg transition-colors"
         >
-          Edit
+          {goal ? "Edit" : "Create"}
         </button>
       </div>
 
       <div className="flex items-end justify-between mb-2">
-        <span className="text-2xl font-semibold text-[#2C2A26]">{fmt(goal.current)}</span>
-        <span className="text-sm text-[#7C6F5B]">of {fmt(goal.target)}</span>
+        <span className="text-2xl font-semibold text-[#2C2A26]">{goal ? fmt(goal.current) : "—"}</span>
+        <span className="text-sm text-[#7C6F5B]">{goal ? `of ${fmt(goal.target)}` : "Set a target to begin"}</span>
       </div>
 
       <div className="relative h-2 bg-[#F0EDE6] rounded-full overflow-hidden mb-3">
@@ -387,7 +376,7 @@ function SavingsGoalCard() {
 
       <div className="flex items-center justify-between text-xs text-[#7C6F5B]">
         <span>{pct}% reached</span>
-        <span>🗓 {daysLeft} days left · {new Date(goal.deadline).toLocaleDateString("en-IN", { month: "short", year: "numeric" })}</span>
+        {goal && <span>🗓 {daysLeft} days left · {new Date(goal.deadline).toLocaleDateString("en-IN", { month: "short", year: "numeric" })}</span>}
       </div>
 
       <Modal open={editing} onClose={() => setEditing(false)}>
@@ -433,7 +422,7 @@ function SavingsGoalCard() {
         </div>
         <div className="flex gap-2 mt-5">
           <button
-            onClick={() => { setGoal(draft); setEditing(false); }}
+            onClick={async () => { const saved = await onSave(draft); if (saved) setEditing(false); }}
             className="flex-1 bg-[#2C2A26] text-[#FAF8F5] rounded-lg py-2.5 text-sm font-medium hover:bg-[#3D3A35] transition-colors"
           >
             Save
@@ -452,7 +441,7 @@ function SavingsGoalCard() {
 
 // ─── Dashboard View ───────────────────────────────────────────────────────────
 
-function DashboardView({ expenses, onAdd, onEdit, onDelete }) {
+function DashboardView({ expenses, monthlyTrend, goal, onAdd, onEdit, onDelete, onSaveGoal }) {
   const total = expenses.reduce((s, e) => s + +e.amount, 0);
   const largestExpense = expenses.length ? Math.max(...expenses.map((e) => +e.amount)) : 0;
 
@@ -527,7 +516,7 @@ function DashboardView({ expenses, onAdd, onEdit, onDelete }) {
       </div>
 
       {/* Savings goal */}
-      <SavingsGoalCard />
+      <SavingsGoalCard goal={goal} onSave={onSaveGoal} />
 
       {/* Recent expenses table */}
       <div className="bg-white border border-[#E8E3D9] rounded-2xl overflow-hidden">
@@ -569,7 +558,7 @@ function DashboardView({ expenses, onAdd, onEdit, onDelete }) {
         <div className="bg-white border border-[#E8E3D9] rounded-2xl p-5">
           <p className="text-xs text-[#7C6F5B] mb-4">Monthly spending trend</p>
           <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={MONTHLY_TREND} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+            <LineChart data={monthlyTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#7C6F5B" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: "#7C6F5B" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v / 1000}k`} />
               <Tooltip formatter={(v) => fmt(v)} contentStyle={{ background: "#FAF8F5", border: "1px solid #E8E3D9", borderRadius: 8, fontSize: 12 }} />
@@ -582,7 +571,7 @@ function DashboardView({ expenses, onAdd, onEdit, onDelete }) {
         <div className="bg-white border border-[#E8E3D9] rounded-2xl p-5">
           <p className="text-xs text-[#7C6F5B] mb-4">Spend vs Save — 6 months</p>
           <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={MONTHLY_TREND} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barSize={10} barGap={4}>
+            <BarChart data={monthlyTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barSize={10} barGap={4}>
               <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#7C6F5B" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: "#7C6F5B" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v / 1000}k`} />
               <Tooltip formatter={(v) => fmt(v)} contentStyle={{ background: "#FAF8F5", border: "1px solid #E8E3D9", borderRadius: 8, fontSize: 12 }} />
@@ -598,17 +587,27 @@ function DashboardView({ expenses, onAdd, onEdit, onDelete }) {
 
 // ─── History View ─────────────────────────────────────────────────────────────
 
-function HistoryView() {
+function HistoryView({ summaries }) {
+  const monthlyTrend = summaries.slice(-6).map((month) => ({
+    month: month.month.slice(5),
+    spent: month.total,
+    saved: month.saved,
+  }));
+
+  const refreshSummary = async () => {
+    const updatedSummaries = await apiRequest(`/summary?year=${new Date().getFullYear()}`);
+    setSummaries(updatedSummaries);
+  };
   return (
     <div className="space-y-4">
       <h2 className="text-base font-semibold text-[#2C2A26]">Past Month History</h2>
       <div className="space-y-3">
-        {PAST_MONTHS.map((m) => (
+        {summaries.map((m) => (
           <div key={m.month} className="bg-white border border-[#E8E3D9] rounded-2xl p-5">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-[#2C2A26]">{m.month}</p>
-                <p className="text-xs text-[#7C6F5B] mt-0.5">Top: {m.topCategory}</p>
+                <p className="text-sm font-medium text-[#2C2A26]">{new Date(`${m.month}-01`).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</p>
+                <p className="text-xs text-[#7C6F5B] mt-0.5">Top: {m.topCategory ? getCat(m.topCategory).label : "No category data"}</p>
               </div>
               <div className="text-right">
                 <p className="text-lg font-semibold text-[#2C2A26]">{fmt(m.total)}</p>
@@ -625,7 +624,7 @@ function HistoryView() {
       <div className="bg-white border border-[#E8E3D9] rounded-2xl p-5">
         <p className="text-xs text-[#7C6F5B] mb-4">6-month savings pattern</p>
         <ResponsiveContainer width="100%" height={180}>
-          <BarChart data={MONTHLY_TREND} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barSize={14}>
+          <BarChart data={monthlyTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barSize={14}>
             <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#7C6F5B" }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 11, fill: "#7C6F5B" }} axisLine={false} tickLine={false} tickFormatter={(v) => `₹${v / 1000}k`} />
             <Tooltip formatter={(v) => fmt(v)} contentStyle={{ background: "#FAF8F5", border: "1px solid #E8E3D9", borderRadius: 8, fontSize: 12 }} />
@@ -641,9 +640,9 @@ function HistoryView() {
 
 // ─── Profile View ─────────────────────────────────────────────────────────────
 
-function ProfileView({ expenses }) {
-  const totalEver = expenses.reduce((s, e) => s + +e.amount, 0) + PAST_MONTHS.reduce((s, m) => s + m.total, 0);
-  const totalSaved = PAST_MONTHS.reduce((s, m) => s + m.saved, 0) + 5000;
+function ProfileView({ expenses, summaries, goal }) {
+  const totalEver = summaries.reduce((s, month) => s + +month.total, 0);
+  const totalSaved = summaries.reduce((s, month) => s + +month.saved, 0);
 
   return (
     <div className="space-y-6">
@@ -659,9 +658,9 @@ function ProfileView({ expenses }) {
 
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: "All-time Spent", value: fmt(totalEver) },
+          { label: "This Year's Spent", value: fmt(totalEver) },
           { label: "Total Saved", value: fmt(totalSaved) },
-          { label: "Active Goals", value: "1" },
+          { label: "Active Goals", value: goal ? "1" : "0" },
         ].map((s) => (
           <div key={s.label} className="bg-white border border-[#E8E3D9] rounded-2xl p-4 text-center">
             <p className="text-xl font-semibold text-[#2C2A26]">{s.value}</p>
@@ -697,7 +696,7 @@ function ProfileView({ expenses }) {
 
 // ─── Ask AI View ──────────────────────────────────────────────────────────────
 
-function AskAIView() {
+function AskAIView({ onImported }) {
   return (
     <div className="bg-white border border-[#E8E3D9] rounded-2xl p-6 h-full flex flex-col" style={{ minHeight: 600 }}>
       <div className="mb-5">
@@ -705,7 +704,7 @@ function AskAIView() {
         <p className="text-sm text-[#7C6F5B] mt-0.5">Upload a report or ask questions about your current data</p>
       </div>
       <div className="flex-1 min-h-0">
-        <ChatSection />
+        <ChatSection onImported={onImported} />
       </div>
     </div>
   );
@@ -716,17 +715,36 @@ function AskAIView() {
 export default function App() {
   const [view, setView] = useState("dashboard");
   const [expenses, setExpenses] = useState([]);
+  const [summaries, setSummaries] = useState([]);
+  const [goal, setGoal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editTarget, setEditTarget] = useState(null);
 
+  const reloadData = async () => {
+    const year = new Date().getFullYear();
+    const [loadedExpenses, loadedSummaries, loadedGoal] = await Promise.all([
+      apiRequest("/expenses"),
+      apiRequest(`/summary?year=${year}`),
+      apiRequest("/goals/active"),
+    ]);
+    setExpenses(loadedExpenses);
+    setSummaries(loadedSummaries);
+    setGoal(loadedGoal);
+  };
+
   useEffect(() => {
-    apiRequest("/expenses")
-      .then(setExpenses)
+    reloadData()
       .catch((requestError) => setError(requestError.message))
       .finally(() => setLoading(false));
   }, []);
+
+  const monthlyTrend = summaries.slice(-6).map((month) => ({
+    month: month.month.slice(5),
+    spent: month.total,
+    saved: month.saved,
+  }));
 
   const handleAdd = async (form) => {
     try {
@@ -735,6 +753,7 @@ export default function App() {
         body: JSON.stringify({ ...form, amount: Number(form.amount) }),
       });
       setExpenses((prev) => [...prev, created]);
+      await refreshSummary();
       setShowAdd(false);
       setError("");
     } catch (requestError) {
@@ -749,6 +768,7 @@ export default function App() {
         body: JSON.stringify({ ...form, amount: Number(form.amount) }),
       });
       setExpenses((prev) => prev.map((expense) => (expense.id === updated.id ? updated : expense)));
+      await refreshSummary();
       setEditTarget(null);
       setError("");
     } catch (requestError) {
@@ -760,9 +780,29 @@ export default function App() {
     try {
       await apiRequest(`/expenses/${id}`, { method: "DELETE" });
       setExpenses((prev) => prev.filter((expense) => expense.id !== id));
+      await refreshSummary();
       setError("");
     } catch (requestError) {
       setError(requestError.message);
+    }
+  };
+
+  const handleSaveGoal = async (draft) => {
+    try {
+      const savedGoal = await apiRequest("/goals/active", {
+        method: "PUT",
+        body: JSON.stringify({
+          ...draft,
+          target: Number(draft.target),
+          current: Number(draft.current),
+        }),
+      });
+      setGoal(savedGoal);
+      setError("");
+      return savedGoal;
+    } catch (requestError) {
+      setError(requestError.message);
+      return null;
     }
   };
 
@@ -797,7 +837,7 @@ export default function App() {
           >
             <span>+</span> Add Expense
           </button>
-          <div className="text-xs text-center text-[#7C6F5B] pt-3">Nov 2025</div>
+          <div className="text-xs text-center text-[#7C6F5B] pt-3">{new Date().toLocaleDateString("en-IN", { month: "short", year: "numeric" })}</div>
         </div>
       </aside>
 
@@ -809,14 +849,17 @@ export default function App() {
           {view === "dashboard" && (
             <DashboardView
               expenses={expenses}
+              monthlyTrend={monthlyTrend}
+              goal={goal}
               onAdd={() => setShowAdd(true)}
               onEdit={setEditTarget}
               onDelete={handleDelete}
+              onSaveGoal={handleSaveGoal}
             />
           )}
-          {view === "ai" && <AskAIView />}
-          {view === "history" && <HistoryView />}
-          {view === "profile" && <ProfileView expenses={expenses} />}
+          {view === "ai" && <AskAIView onImported={reloadData} />}
+          {view === "history" && <HistoryView summaries={summaries} />}
+          {view === "profile" && <ProfileView expenses={expenses} summaries={summaries} goal={goal} />}
         </div>
       </main>
 

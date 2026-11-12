@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from routes.chat_routes import router as chat_router
 from routes.transaction_routes import router as transaction_router
 from storage import initialise_database
 
@@ -22,6 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(transaction_router, prefix="/api")
+app.include_router(chat_router, prefix="/api")
 
 
 @app.get("/")

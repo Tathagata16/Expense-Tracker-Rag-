@@ -27,6 +27,39 @@ def initialise_database() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS savings_goals (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                title TEXT NOT NULL,
+                target REAL NOT NULL CHECK (target > 0),
+                current REAL NOT NULL CHECK (current >= 0),
+                deadline TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS documents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS document_chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                chunk_index INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                embedding TEXT NOT NULL,
+                UNIQUE(document_id, chunk_index)
+            )
+            """
+        )
 
 
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
